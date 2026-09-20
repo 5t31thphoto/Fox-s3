@@ -1,6 +1,6 @@
 # Fox Voice Companion (PlatformIO + Arduino)
 
-Builds on **GitHub Actions**, flashes from the **web flasher** — same pipeline you
+Builds on *GitHub Actions*, flashes from the **web flasher** — same pipeline you
 already use. Replaces the ESP-IDF + arduino-as-component hybrid that never ran
 setup() (the week-long black screen).
 
