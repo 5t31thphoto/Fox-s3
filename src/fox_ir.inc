@@ -8,11 +8,12 @@
 // something that feels like it learned your remote.
 //
 // Codes come from the `foxdata` partition (built by tools/build_ir.py, format
-// "FOXI" v2). We mmap it read-only and play raw timing pairs over RMT.
+// "FOXI" v2). We read it into PSRAM and play raw timing pairs over the Arduino
+// RMT API (rmtInit/rmtWrite) — portable, no ESP-IDF rmt_tx.h driver needed.
 #pragma once
 #include <esp_partition.h>
-#include <driver/rmt_tx.h>
-#include <driver/rmt_encoder.h>
+#include "esp32-hal-rmt.h"    // Arduino RMT (rmtInit/rmtWrite/rmtSetCarrier)
+#include <esp_heap_caps.h>
 
 // ---- FOXI blob layout (mirror of tools/build_ir.py) -------------------------
 struct __attribute__((packed)) IrEntry {
@@ -26,67 +27,53 @@ struct __attribute__((packed)) IrEntry {
     uint16_t _pad;
 };
 
-static const uint8_t* ir_base = nullptr;
-static esp_partition_mmap_handle_t ir_map = 0;
+static const uint8_t* ir_base = nullptr;    // FOXI blob copied into PSRAM
 static uint16_t ir_n_codes = 0;
 static const IrEntry* ir_table = nullptr;
-static rmt_channel_handle_t ir_chan = nullptr;
-static rmt_encoder_handle_t ir_encoder = nullptr;
+static bool ir_rmt_ok = false;
 
 void ir_begin() {
     const esp_partition_t* p = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "foxdata");
     if (p) {
-        const void* ptr = nullptr;
-        if (esp_partition_mmap(p, 0, p->size, ESP_PARTITION_MMAP_DATA, &ptr, &ir_map) == ESP_OK) {
-            ir_base = (const uint8_t*)ptr;
+        uint8_t* buf = (uint8_t*)heap_caps_malloc(p->size,
+                                        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (buf && esp_partition_read(p, 0, buf, p->size) == ESP_OK) {
+            ir_base = buf;
             if (memcmp(ir_base, "FOXI", 4) == 0) {
                 ir_n_codes = *(const uint16_t*)(ir_base + 6);
                 ir_table = (const IrEntry*)(ir_base + 16);
             }
-        }
+        } else if (buf) free(buf);
     }
 
-    // RMT TX channel on the IR LED. Carrier is applied per-code below.
-    rmt_tx_channel_config_t tx = {};
-    tx.gpio_num = IR_TX_GPIO;
-    tx.clk_src = RMT_CLK_SRC_DEFAULT;
-    tx.resolution_hz = 1000000;      // 1us tick
-    tx.mem_block_symbols = 128;
-    tx.trans_queue_depth = 4;
-    if (rmt_new_tx_channel(&tx, &ir_chan) == ESP_OK) {
-        rmt_copy_encoder_config_t ce = {};
-        rmt_new_copy_encoder(&ce, &ir_encoder);
-        rmt_enable(ir_chan);
-    }
-    Serial.printf("FOX: IR ready, %u codes\n", ir_n_codes);
+    // Arduino RMT TX on the IR LED, 1us tick (1MHz). Carrier set per-code.
+    ir_rmt_ok = rmtInit(IR_TX_GPIO, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_1, 1000000);
+    Serial.printf("FOX: IR ready, %u codes, rmt=%d\n", ir_n_codes, (int)ir_rmt_ok);
 }
 
 __attribute__((unused)) static const char* ir_name(const IrEntry* e) {
     return ir_base ? (const char*)(ir_base + e->name_off) : "";
 }
 
-// Play one code's raw timing pairs with the right carrier.
+// Play one code's raw timing pairs with the right carrier (Arduino RMT).
 static void ir_play(const IrEntry* e) {
-    if (!ir_chan || !ir_encoder || !e) return;
+    if (!ir_rmt_ok || !e || !ir_base) return;
     int freq = e->freq_div * 250; if (freq < 30000) freq = 38000;
-    rmt_carrier_config_t carrier = {};
-    carrier.frequency_hz = freq;
-    carrier.duty_cycle = 0.33f;
-    rmt_apply_carrier(ir_chan, &carrier);
+    rmtSetCarrier(IR_TX_GPIO, true, false, freq, 33.0f);   // 33% duty carrier
 
     const uint16_t* t = (const uint16_t*)(ir_base + e->data_off);
-    // Convert u16 on/off microsecond pairs to rmt_symbol_word_t.
     int pairs = e->n_pairs;
-    rmt_symbol_word_t* syms = (rmt_symbol_word_t*)malloc(pairs * sizeof(rmt_symbol_word_t));
+    rmt_data_t* syms = (rmt_data_t*)malloc(pairs * sizeof(rmt_data_t));
     if (!syms) return;
     for (int i = 0; i < pairs; ++i) {
-        syms[i].level0 = 1; syms[i].duration0 = t[i * 2];
-        syms[i].level1 = 0; syms[i].duration1 = t[i * 2 + 1];
+        // RMT durations are 15-bit; clamp trailing gaps so they don't wrap.
+        uint16_t on  = t[i * 2];     if (on  > 32767) on  = 32767;
+        uint16_t off = t[i * 2 + 1]; if (off > 32767) off = 32767;
+        syms[i].level0 = 1; syms[i].duration0 = on;
+        syms[i].level1 = 0; syms[i].duration1 = off;
     }
-    rmt_transmit_config_t txc = {}; txc.loop_count = 0;
-    rmt_transmit(ir_chan, ir_encoder, syms, pairs * sizeof(rmt_symbol_word_t), &txc);
-    rmt_tx_wait_all_done(ir_chan, 200);
+    rmtWrite(IR_TX_GPIO, syms, pairs, 200);   // 200ms timeout
     free(syms);
 }
 

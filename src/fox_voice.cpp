@@ -14,6 +14,7 @@
 // buffer in the sample callback and reuses it immediately. We copy every chunk
 // into our own memory before playing.
 #include "fox.h"
+#include <esp_random.h>
 #include "fox_decls.h"
 #include "fox_audio.h"
 #include <esp_heap_caps.h>

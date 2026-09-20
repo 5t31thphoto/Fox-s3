@@ -40,15 +40,13 @@ struct Header {
     int32_t  reserved[6];
 };
 
-struct QTensor { const int8_t* q; const float* s; };  // points into mmap
+struct QTensor { const int8_t* q; const float* s; };  // point into the PSRAM copy
 
 struct Model {
     Header h{};
-    const uint8_t* base = nullptr;   // mmap base of weights region
-    esp_partition_mmap_handle_t map = 0;
+    const uint8_t* base = nullptr;   // model bytes, copied from flash into PSRAM
     // token embedding (fp32, small) and quantised weight views set up in load()
     const float* tok_emb = nullptr;
-    // We keep raw pointers into the mmap and slice per-layer at runtime.
     bool ready = false;
 
     // runtime buffers (PSRAM)
@@ -71,10 +69,13 @@ bool load_model() {
     const esp_partition_t* p = esp_partition_find_first(
         ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x45, "foxbrain");
     if (!p) return false;
-    const void* ptr = nullptr;
-    if (esp_partition_mmap(p, 0, p->size, ESP_PARTITION_MMAP_DATA, &ptr,
-                           &M.map) != ESP_OK) return false;
-    M.base = (const uint8_t*)ptr;
+    // Copy the model out of flash into PSRAM. Portable across Arduino/IDF — no
+    // esp_partition_mmap handle API (which isn't exposed the same under Arduino).
+    uint8_t* buf = (uint8_t*)heap_caps_malloc(p->size,
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) return false;
+    if (esp_partition_read(p, 0, buf, p->size) != ESP_OK) { free(buf); return false; }
+    M.base = buf;
     memcpy(&M.h, M.base, sizeof(Header));
     if (memcmp(M.h.magic, "FOXB", 4) != 0 || M.h.version != 1) return false;
     if (M.h.dim <= 0 || M.h.dim > 512 || M.h.n_layers <= 0 || M.h.n_layers > 12)

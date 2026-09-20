@@ -28,8 +28,8 @@
 #include <Preferences.h>
 #include <esp_sleep.h>
 #include <esp_heap_caps.h>
+#include <esp_random.h>
 #include <esp_partition.h>
-#include <driver/rmt_tx.h>
 #include <math.h>
 
 // esp-sr (MultiNet/AFE offline speech) is PART 2 — held out so Part 1 boots and
