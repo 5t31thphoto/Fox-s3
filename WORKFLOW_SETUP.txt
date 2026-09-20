@@ -1,0 +1,13 @@
+WORKFLOW SETUP (because the drop-zip tool can't write .github/workflows)
+
+One-time:
+  1. Place drop_zip.yml at  .github/workflows/drop_zip.yml   (yourself; a normal
+     user push can write workflows — only the Action's token can't).
+
+Each update:
+  2. Commit a project .zip to the repo ROOT.
+  3. drop-zip expands it (add/replace overlay) and commits — including this
+     project's build workflow, which lands at  github/workflows/build-and-flash.yml
+     (NO dot, so the tool is allowed to write it).
+  4. Rename  github/workflows/build-and-flash.yml  ->  .github/workflows/build-and-flash.yml
+     and push. THAT push fires the build + web-flasher deploy.

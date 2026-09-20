@@ -1,0 +1,16 @@
+# FINAL 8MB layout — used for BOTH Part 1 and Part 2, so Part 2 is a pure
+# drop-in: it only flashes the (currently empty) 'model' partition; the app,
+# brain, IR and journal offsets never move.
+#
+# Part 1 app (no esp-sr) fits easily in the 3.875MB app slot; Part 2 (esp-sr +
+# MultiNet) stays under it too. The 'model' partition (2.75MB) sits empty until
+# Part 2 flashes srmodels.bin into it.
+# Name,   Type, SubType,  Offset,    Size
+nvs,      data, nvs,      0x9000,    0x6000,
+otadata,  data, ota,      0xf000,    0x2000,
+phy_init, data, phy,      0x11000,   0x1000,
+factory,  app,  factory,  0x20000,   0x3E0000,
+model,    data, spiffs,   0x400000,  0x2C0000,
+foxbrain, data, 0x45,     0x6C0000,  0xE0000,
+foxdata,  data, 0x46,     0x7A0000,  0x40000,
+foxfs,    data, spiffs,   0x7E0000,  0x20000,
