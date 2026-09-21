@@ -11,6 +11,27 @@ static int   blink_timer = 0;
 static bool  blinking = false;
 static String caption;
 static uint32_t caption_until = 0;
+
+// Greedy word-wrap: split `text` into up to `maxlines` lines of at most
+// `maxchars` characters, into out[]. Returns the number of lines. Used anywhere
+// text is drawn so nothing clips at 20 chars any more.
+int face_wrap(const String& text, int maxchars, int maxlines, String* out) {
+    int nl = 0; String cur = ""; int start = 0; int len = text.length();
+    while (start <= len && nl < maxlines) {
+        int sp = text.indexOf(' ', start);
+        String word = (sp < 0) ? text.substring(start) : text.substring(start, sp);
+        if (word.length()) {
+            if (cur.length() == 0) cur = word;
+            else if ((int)(cur.length() + 1 + word.length()) <= maxchars) cur += " " + word;
+            else { out[nl++] = cur; cur = word; }
+        }
+        if (sp < 0) break;
+        start = sp + 1;
+    }
+    if (nl < maxlines && cur.length()) out[nl++] = cur;
+    if (nl == 0) { out[0] = text.substring(0, maxchars); nl = 1; }
+    return nl;
+}
 static uint8_t ear_wiggle = 0;
 
 void face_begin(FoxConfig& c) {
@@ -61,7 +82,8 @@ void face_splash(FoxConfig& c) {
         face_canvas->fillTriangle(60, 52, 68, 52, 64, 57, 0x0000);
         // name / splash text
         face_canvas->setTextColor(0xFFFF); face_canvas->setTextDatum(bottom_center);
-        face_canvas->drawString(txt.substring(0, 20), 64, 118);
+        { String ln[3]; int n = face_wrap(txt, 20, 3, ln);
+          for (int i = 0; i < n; ++i) face_canvas->drawString(ln[i], 64, 118 - (n-1-i)*11); }
         face_canvas->pushSprite(0, 0);
         frame++;
         delay(40);
@@ -130,10 +152,13 @@ void face_draw(FoxMood mood) {
 
     // caption bar
     if (caption.length() && millis() < caption_until && face_cfg->captions) {
-        face_canvas->fillRect(0, 112, 128, 16, 0x0000);
-        face_canvas->setTextColor(0xFFFF);
-        face_canvas->setTextSize(1);
-        face_canvas->drawString(caption.substring(0, 20), 64, 120);
+        String ln[3]; int n = face_wrap(caption, 20, 3, ln);
+        int lh = 11, h = n * lh + 4;
+        face_canvas->fillRect(0, 128 - h, 128, h, 0x0000);
+        face_canvas->setTextColor(0xFFFF); face_canvas->setTextSize(1);
+        face_canvas->setTextDatum(bottom_center);
+        for (int i = 0; i < n; ++i)
+            face_canvas->drawString(ln[i], 64, 126 - (n-1-i)*lh);
     }
     face_canvas->pushSprite(0, 0);
 }

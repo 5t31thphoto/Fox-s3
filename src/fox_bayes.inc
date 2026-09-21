@@ -92,7 +92,7 @@ void game_bayes_twenty() {
     using namespace bayes20;
     for (int i = 0; i < NENT; ++i) bel[i] = 1.0f / NENT;
     bool asked[NFEAT] = {false};
-    speak("think of something! tap for yes, wait for no~");
+    speak("think of something! CLICK = yes, SHAKE = no~");
 
     for (int turn = 0; turn < 12; ++turn) {
         int t = top();

@@ -42,13 +42,23 @@ bool wants_menu() {
 
 // Simple yes-confirm used by IR narrowing: tap the button within `ms`.
 bool input_wait_yes(uint32_t ms) {
+    // Explicit yes/no: CLICK the button = YES, SHAKE the fox = NO.
+    // (A long timeout also resolves to NO as a fallback.)
+    if (ms < 6000) ms = 6000;           // give real time to answer
     uint32_t t0 = millis();
+    // require the button to be released first so a held press doesn't auto-yes
+    while (digitalRead((int)USER_GPIO) == LOW) delay(5);
     while (millis() - t0 < ms) {
         M5.update();
-        if (digitalRead((int)USER_GPIO) == LOW) {
-            // debounce release
+        if (digitalRead((int)USER_GPIO) == LOW) {          // CLICK = YES
             while (digitalRead((int)USER_GPIO) == LOW) delay(5);
             return true;
+        }
+        float ax, ay, az;                                  // SHAKE = NO
+        if (M5.Imu.getAccel(&ax, &ay, &az) &&
+            sqrtf(ax * ax + ay * ay + az * az) > 2.2f) {
+            delay(250);                                     // let the shake settle
+            return false;
         }
         delay(5);
     }

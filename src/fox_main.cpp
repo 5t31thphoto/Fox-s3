@@ -30,6 +30,7 @@
 #include <esp_heap_caps.h>
 #include <esp_random.h>
 #include <esp_partition.h>
+#include <Wire.h>
 #include <math.h>
 
 // esp-sr (MultiNet/AFE offline speech) is PART 2 — held out so Part 1 boots and
@@ -477,6 +478,27 @@ static void process_utterance(int16_t* audio, size_t n) {
 // library for mic/speaker. We do the same — see fox_audio.cpp / fox_audio.h.
 #include "fox_audio.h"
 
+// AtomS3R backlight = LP5562 RGB LED driver @ I2C 0x30 on the system bus
+// (SDA=45, SCL=0). It is NOT a GPIO/PWM pin. Driven here directly on Wire1 so
+// the Atomic Echo Base can keep Wire on 38/39 for the ES8311. Register values
+// are from the LP5562 datasheet (ENABLE / CONFIG / LED-MAP / B-channel PWM).
+static void fox_backlight(uint8_t brightness) {
+    Wire1.end();
+    Wire1.begin(45, 0, 400000);
+    delay(1);
+    auto wr = [](uint8_t reg, uint8_t val) -> bool {
+        Wire1.beginTransmission(0x30);
+        Wire1.write(reg); Wire1.write(val);
+        return Wire1.endTransmission() == 0;
+    };
+    if (!wr(0x00, 0x40)) { Serial.println("FOX: LP5562 no ACK on Wire1"); return; }
+    delay(1);
+    wr(0x08, 0x01);         // CONFIG: internal clock source
+    wr(0x70, 0x00);         // LED_MAP: direct/manual PWM (no program engine)
+    wr(0x0E, brightness);   // B_PWM: blue channel = the display backlight
+    Serial.printf("FOX: LP5562 backlight %u\n", brightness);
+}
+
 void setup() {
     // Serial first so we always see progress even if later init stalls.
     Serial.begin(115200);
@@ -489,6 +511,13 @@ void setup() {
     // Do NOT enable atomic_echo — it was the blank-screen root cause.
     M5.begin(c);
     Serial.println("FOX: post-M5");
+
+    // AtomS3R backlight is NOT a GPIO — it's the blue channel of an LP5562 LED
+    // driver at I2C 0x30 on the system bus (SDA=45, SCL=0). setBrightness() alone
+    // won't light it. Drive it directly on Wire1 so the Echo Base keeps Wire on
+    // 38/39 for the ES8311. (LP5562 datasheet register map.)
+    fox_backlight(200);
+    M5.Display.setBrightness(200);
 
     // Bring the DISPLAY UP FIRST, before any heavy init, so the screen is never
     // black-with-no-explanation. If something below is slow or crashes, at least

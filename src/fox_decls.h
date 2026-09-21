@@ -64,6 +64,7 @@ void  game_catch();
 void  game_reaction();
 void  game_guess_paw();
 bool  input_wait_yes(uint32_t ms);   // defined in fox_input.inc, used widely
+int   face_wrap(const String& text, int maxchars, int maxlines, String* out);  // word-wrap, fox_face.inc
 
 // ---- Bayesian 20 questions (fox_bayes.inc) ---------------------------------
 void  game_bayes_twenty();
