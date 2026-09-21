@@ -15,7 +15,7 @@
 #include <math.h>
 #include <ctype.h>
 
-#define SR      22050
+#define SR      16000
 #define MAX_SEC 7
 #define MAX_SMP (SR * MAX_SEC)
 

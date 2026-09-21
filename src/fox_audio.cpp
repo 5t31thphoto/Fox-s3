@@ -65,26 +65,41 @@ bool audio_record(int16_t* buf, size_t size_samples) {
 bool audio_play_pcm16(const int16_t* buf, size_t size_samples, int sample_rate) {
     if (!g_echo_ok || !buf || !size_samples) return false;
     g_echo.setMute(false);
+    // The I2S runs in STEREO 16-bit, but our audio is MONO. Duplicate each
+    // sample to L+R and clear the DMA only on the final chunk, otherwise mono
+    // data plays at the wrong rate with scrambled L/R (low-freq noise) and every
+    // chunk boundary clicks.
+    static int16_t st[512];               // 256 stereo frames per chunk
+    size_t off = 0;
+    while (off < size_samples) {
+        size_t n = size_samples - off; if (n > 256) n = 256;
+        for (size_t i = 0; i < n; ++i) { st[2*i] = buf[off+i]; st[2*i+1] = buf[off+i]; }
+        bool last = (off + n >= size_samples);
+        if (!g_echo.play((uint8_t*)st, (int)(n * 2 * sizeof(int16_t)), last)) return false;
+        off += n;
+    }
     uint32_t ms = (uint32_t)((size_samples * 1000ULL) / (sample_rate > 0 ? sample_rate : SAMPLE_RATE));
     s_play_until = millis() + ms + 20;
-    return g_echo.play((uint8_t*)buf, (int)(size_samples * sizeof(int16_t)));
+    return true;
 }
 
 bool audio_play_pcm8(const uint8_t* buf, size_t size_bytes, int sample_rate) {
     if (!g_echo_ok || !buf || !size_bytes) return false;
-    static int16_t chunk[512];
+    static int16_t st[512];               // 256 stereo frames per chunk
     g_echo.setMute(false);
     size_t off = 0;
     while (off < size_bytes) {
-        size_t n = size_bytes - off;
-        if (n > 512) n = 512;
-        for (size_t i = 0; i < n; ++i)
-            chunk[i] = ((int16_t)buf[off + i] - 128) << 8;
-        if (!g_echo.play((uint8_t*)chunk, (int)(n * sizeof(int16_t))))
+        size_t n = size_bytes - off; if (n > 256) n = 256;
+        for (size_t i = 0; i < n; ++i) {
+            int16_t s = (int16_t)(((int)buf[off + i] - 128) << 8);   // u8 -> s16
+            st[2*i] = s; st[2*i+1] = s;                              // L = R (mono)
+        }
+        bool last = (off + n >= size_bytes);
+        if (!g_echo.play((uint8_t*)st, (int)(n * 2 * sizeof(int16_t)), last))
             return false;
         off += n;
     }
-    uint32_t ms = (uint32_t)((size_bytes * 1000ULL) / (sample_rate > 0 ? sample_rate : 22050));
+    uint32_t ms = (uint32_t)((size_bytes * 1000ULL) / (sample_rate > 0 ? sample_rate : SAMPLE_RATE));
     s_play_until = millis() + ms + 20;
     return true;
 }
@@ -96,7 +111,7 @@ void audio_tone(int freq_hz, int duration_ms) {
     if (n <= 0) return;
     const int MAX_N = sr / 5;  // 200 ms
     int samples = n > MAX_N ? MAX_N : n;
-    int16_t* buf = (int16_t*)malloc(samples * sizeof(int16_t));
+    int16_t* buf = (int16_t*)malloc(samples * 2 * sizeof(int16_t));   // stereo
     if (!buf) return;
     for (int i = 0; i < samples; ++i) {
         float t = (float)i / (float)sr;
@@ -104,10 +119,11 @@ void audio_tone(int freq_hz, int duration_ms) {
         float env = 1.0f;
         if (i < 32) env = (float)i / 32.0f;
         else if (i > samples - 32) env = (float)(samples - i) / 32.0f;
-        buf[i] = (int16_t)(s * env * 12000.0f);
+        int16_t v = (int16_t)(s * env * 12000.0f);
+        buf[2*i] = v; buf[2*i+1] = v;                                 // L = R
     }
     g_echo.setMute(false);
-    g_echo.play((uint8_t*)buf, samples * (int)sizeof(int16_t));
+    g_echo.play((uint8_t*)buf, samples * 2 * (int)sizeof(int16_t), true);
     s_play_until = millis() + (uint32_t)duration_ms + 20;
     free(buf);
 }

@@ -94,12 +94,12 @@ static bool sam_say(const String& text) {
         return false;
     if (!g_echo_ok) { sam_free(pcm); return false; }
     audio_set_volume(g_cfg.volume > 100 ? 100 : g_cfg.volume);
-    // Play in ~40ms chunks (22050Hz 8-bit) so the mouth lip-syncs.
-    const int CH = 900;
+    // Play in ~40ms chunks (16kHz 8-bit) so the mouth lip-syncs.
+    const int CH = 640;
     for (int off = 0; off < len; off += CH) {
         int n = min(CH, len - off);
         mouth_from_pcm8(pcm + off, n, g_speaking_mood);
-        audio_play_pcm8(pcm + off, n, 22050);
+        audio_play_pcm8(pcm + off, n, 16000);
         while (audio_is_playing()) { M5.update(); delay(2); }
     }
     face_set_mouth(0); face_draw(g_speaking_mood);
