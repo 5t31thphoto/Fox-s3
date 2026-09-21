@@ -30,7 +30,7 @@ struct __attribute__((packed)) IrEntry {
 static const uint8_t* ir_base = nullptr;    // FOXI blob copied into PSRAM
 static uint16_t ir_n_codes = 0;
 static const IrEntry* ir_table = nullptr;
-static bool ir_rmt_ok = false;
+static rmt_obj_t* ir_rmt = nullptr;         // arduino-esp32 2.0.x RMT handle
 
 void ir_begin() {
     const esp_partition_t* p = esp_partition_find_first(
@@ -47,20 +47,25 @@ void ir_begin() {
         } else if (buf) free(buf);
     }
 
-    // Arduino RMT TX on the IR LED, 1us tick (1MHz). Carrier set per-code.
-    ir_rmt_ok = rmtInit(IR_TX_GPIO, RMT_TX_MODE, RMT_MEM_NUM_BLOCKS_1, 1000000);
-    Serial.printf("FOX: IR ready, %u codes, rmt=%d\n", ir_n_codes, (int)ir_rmt_ok);
+    // Arduino-esp32 2.0.x RMT: init TX, then set a 1us tick (1000ns).
+    ir_rmt = rmtInit((int)IR_TX_GPIO, true /*tx*/, RMT_MEM_64);
+    if (ir_rmt) rmtSetTick(ir_rmt, 1000.0f);   // 1 tick = 1us
+    Serial.printf("FOX: IR ready, %u codes, rmt=%d\n", ir_n_codes, (int)(ir_rmt != nullptr));
 }
 
 __attribute__((unused)) static const char* ir_name(const IrEntry* e) {
     return ir_base ? (const char*)(ir_base + e->name_off) : "";
 }
 
-// Play one code's raw timing pairs with the right carrier (Arduino RMT).
+// Play one code's raw timing pairs with the right carrier (Arduino 2.0.x RMT).
 static void ir_play(const IrEntry* e) {
-    if (!ir_rmt_ok || !e || !ir_base) return;
+    if (!ir_rmt || !e || !ir_base) return;
     int freq = e->freq_div * 250; if (freq < 30000) freq = 38000;
-    rmtSetCarrier(IR_TX_GPIO, true, false, freq, 33.0f);   // 33% duty carrier
+    // carrier low/high are in RMT ticks (1us). period = 1e6/freq us; ~33% duty.
+    int period = 1000000 / freq; if (period < 3) period = 26;   // 38k -> 26us
+    int high = period / 3; if (high < 1) high = 1;
+    int low  = period - high; if (low < 1) low = 1;
+    rmtSetCarrier(ir_rmt, true, true /*carrier on marks*/, (uint32_t)low, (uint32_t)high);
 
     const uint16_t* t = (const uint16_t*)(ir_base + e->data_off);
     int pairs = e->n_pairs;
@@ -73,7 +78,7 @@ static void ir_play(const IrEntry* e) {
         syms[i].level0 = 1; syms[i].duration0 = on;
         syms[i].level1 = 0; syms[i].duration1 = off;
     }
-    rmtWrite(IR_TX_GPIO, syms, pairs, 200);   // 200ms timeout
+    rmtWrite(ir_rmt, syms, pairs);   // blocking; 3 args in 2.0.x
     free(syms);
 }
 

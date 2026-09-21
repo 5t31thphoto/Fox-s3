@@ -113,10 +113,10 @@ void tool_menu_ble_radar() {
         if (M5.BtnA.wasClicked()) break;
         float heading = imu_heading_deg();
         // short scan burst; attribute results to the current heading
-        BLEScanResults* res = ble_scan->start(1, false);
-        int n = res->getCount();
+        BLEScanResults res = ble_scan->start(1, false);
+        int n = res.getCount();
         for (int i = 0; i < n; ++i) {
-            BLEAdvertisedDevice d = res->getDevice(i);
+            BLEAdvertisedDevice d = res.getDevice(i);
             String nm = d.haveName() ? String(d.getName().c_str())
                                      : String(d.getAddress().toString().c_str()).substring(0, 8);
             blip_upsert(nm, d.getRSSI(), heading);
@@ -132,10 +132,10 @@ void tool_menu_ble_radar() {
 const char* tool_ble_scan_report() {
     static char buf[220];
     ble_begin_once();
-    BLEScanResults* res = ble_scan->start(3, false);
-    int n = res->getCount(), strongest = -999; String who = "";
+    BLEScanResults res = ble_scan->start(3, false);
+    int n = res.getCount(), strongest = -999; String who = "";
     for (int i = 0; i < n; ++i) {
-        BLEAdvertisedDevice d = res->getDevice(i);
+        BLEAdvertisedDevice d = res.getDevice(i);
         if (d.getRSSI() > strongest) {
             strongest = d.getRSSI();
             who = d.haveName() ? String(d.getName().c_str())
